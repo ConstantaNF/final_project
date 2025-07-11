@@ -1,0 +1,35 @@
+---
+- name: Copy pryvate_key  on gluster directory
+  ansible.builtin.copy:
+    src: ~/final_project/backend1/.vagrant/machines/backend1/virtualbox/private_key
+    dest: ~/final_project/gluster/backend1/.vagrant/machines/backend1/virtualbox/
+    mode: '0600'
+    force: true
+
+- name: Copy pryvate_key  on gluster restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/backend1/.vagrant/machines/backend1/virtualbox/private_key
+    dest: ~/final_project/gluster/restore/backend1/.vagrant/machines/backend1/virtualbox/
+    mode: '0600'
+    force: true
+
+- name: Copy pryvate_key  on pgdb2 directory
+  ansible.builtin.copy:
+    src: ~/final_project/backend1/.vagrant/machines/backend1/virtualbox/private_key
+    dest: ~/final_project/pgdb2/backend1/.vagrant/machines/backend1/virtualbox/
+    mode: '0600'
+    force: true
+
+- name: Copy pryvate_key  on pgdb2 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/backend1/.vagrant/machines/backend1/virtualbox/private_key
+    dest: ~/final_project/pgdb2/restore/backend1/.vagrant/machines/backend1/virtualbox/
+    mode: '0600'
+    force: true
+
+- name: Copy pryvate_key  on pgdb1 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/backend1/.vagrant/machines/backend1/virtualbox/private_key
+    dest: ~/final_project/pgdb1/restore/backend1/.vagrant/machines/backend1/virtualbox/
+    mode: '0600'
+    force: true

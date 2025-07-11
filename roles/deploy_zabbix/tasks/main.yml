@@ -1,0 +1,198 @@
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+
+- name: Install package locales
+  ansible.builtin.apt:
+    name: locales
+    state: present
+    update_cache: yes
+
+- name: Generation locale ru_RU.UTF-8
+  locale_gen:
+    name: ru_RU.UTF-8
+    state: present
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+      192.168.30.10 borg borg.netbox.local
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - traceroute
+    - git
+    - borgbackup
+    - postgresql
+    - postgresql-contrib
+    - zabbix-server-pgsql
+    - zabbix-frontend-php
+    - php8.3-pgsql
+    - zabbix-nginx-conf
+    - zabbix-sql-scripts
+    - zabbix-agent2
+    - zabbix-agent2-plugin-postgresql
+
+- name: Install python3 and related packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - python3-pexpect
+    - python3-psycopg2
+    - bash-completion
+    - wget
+    - postgresql
+    - postgresql-contrib
+
+- name: Enable and start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Copy pg_hba.conf
+  ansible.builtin.template:
+    src: pg_hba.conf
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Restart postgresql-server
+  ansible.builtin.service:
+    name: postgresql
+
+- name: Copy zabbix_server.conf
+  ansible.builtin.template:
+    src: zabbix_server.conf.j2
+    dest: /etc/zabbix/zabbix_server.conf
+    owner: zabbix
+    group: zabbix
+    mode: '0600'
+
+- name: Create zabbix user
+  ansible.builtin.expect:
+    command: 'su postgres -c "createuser --pwprompt zabbix"'
+    responses:
+      '.*Enter password for new role:*': "zabbix"
+      '.*Enter it again:*': "zabbix"
+
+- name: Create DB zabbix
+  ansible.builtin.shell: su postgres -c "createdb -O zabbix zabbix"
+
+- name: Import PGDB schema
+  ansible.builtin.shell:  zcat /usr/share/zabbix/sql-scripts/postgresql/server.sql.gz | sudo -u zabbix psql zabbix
+
+- name: Restore db zabbix
+  ansible.builtin.shell: |
+    latest_backup=$(ls /vagrant/backup_zabbix_db/*.dump | tail -1)
+    sudo -u postgres pg_restore -v --clean -d zabbix "$latest_backup"
+
+- name: Restart Zabbix services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: restarted
+    enabled: true
+  loop:
+    - zabbix-server
+    - zabbix-agent2
+    - nginx
+    - php8.3-fpm
+
+- name: Copy zabbix.conf
+  ansible.builtin.template:
+    src: zabbix.conf
+    dest: /etc/nginx/sites-available/zabbix
+
+- name: Copy SSL certs
+  ansible.builtin.template:
+    src: zabbix.crt
+    dest: /etc/ssl/certs/zabbix.crt
+
+- name: Copy SSL private key
+  ansible.builtin.template:
+    src: zabbix.key
+    dest: /etc/ssl/private/zabbix.key
+
+- name: Remove nginx default
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Create a symbolic link to sites-enabled
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/zabbix
+    dest: /etc/nginx/sites-enabled/zabbix
+    state: link
+
+- name: Restart nginx service
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+
+- name: Backup zabbix db
+  ansible.builtin.cron:
+    name: "Backup zabbix db"
+    job: "sudo -u postgres pg_dump -Fc --clean -d zabbix > /vagrant/backup_zabbix_db/pg_dump$(date +\\%Y\\%m\\%d\\%H\\%M).dump 2>> /var/log/zabbix_backup.log"
+    minute: "*/5"
+    hour: "*"
+    month: "*"
+    weekday: "*"
+
+- name: Copy ruleset for remote rsyslog
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: /etc/rsyslog.d/
+  loop:
+    - 50-default.conf
+    - 60-zabbix_server.conf
+
+- name: Copy ruleset for nftables
+  ansible.builtin.template:
+    src: nftables.conf
+    dest: /etc/nftables.conf
+
+- name: Apply nftables ruleset
+  ansible.builtin.shell: nft -f /etc/nftables.conf
+
+- name: Enable nftables service
+  ansible.builtin.service:
+    name: nftables
+    enabled: yes
+
+- name: Chmod /var/log/zabbix
+  ansible.builtin.file:
+    path: /var/log/zabbix
+    mode: '0755'
+
+- name: Chmod /var/log/zabbix/zabbix_server.log
+  ansible.builtin.file:
+    path: /var/log/zabbix/zabbix_server.log
+    mode: '0644'
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted

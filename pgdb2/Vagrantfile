@@ -1,0 +1,24 @@
+Vagrant.configure("2") do |config|
+  # Base VM OS configuration
+  config.vm.box = "bento/ubuntu-24.04"
+  config.vm.define "pgdb2"
+  config.vm.provider :virtualbox do |v|
+    v.memory = 1024
+    v.cpus = 2
+  end
+
+  # Network settings static private IP addresses
+  config.vm.hostname = "pgdb2"
+  config.vm.network :forwarded_port, guest: 22, host: 22025
+  config.vm.network "private_network", ip: "192.168.30.5", virtualbox__intnet: "default_nbnetwork"
+
+  # Provision ansible
+  config.vm.provision "ansible" do |ansible|
+    ansible.playbook = "../site.yml"
+    ansible.inventory_path = "../hosts.ini"
+    ansible.tags = "copy_pryv_key_pgdb2, pgdb2"
+    ansible.host_key_checking = "false"
+    ansible.limit = "all"
+  end
+end
+

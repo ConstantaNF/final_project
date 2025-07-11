@@ -1,0 +1,137 @@
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+
+- name: Copy ruleset for remote rsyslog
+  ansible.builtin.template:
+    src: 50-default.conf
+    dest: /etc/rsyslog.d/
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - traceroute
+      - python3-pexpect
+      - python3-psycopg2
+      - bash-completion
+      - wget
+      - postgresql
+      - barman-cli
+      - postgresql-contrib
+    state: present
+    update_cache: true
+
+- name: Enable and start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Copy postgresql.conf on pgdb1
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: /etc/postgresql/16/main/postgresql.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Copy pg_hba.conf on pgdb1
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Restart postgresql-server on pgdb1
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+
+- name: Create replicator user on pgdb1
+  community.postgresql.postgresql_user:
+    name: '{{ replication_user }}'
+    password: '{{ replicator_password }}'
+    role_attr_flags: REPLICATION 
+  ignore_errors: true
+
+- name: Create barman user
+  postgresql_user:
+    name: '{{ barman_user }}'
+    password: '{{ barman_user_password }}'
+    role_attr_flags: SUPERUSER
+  ignore_errors: true
+
+- name: Create netbox user
+  postgresql_user:
+    name: '{{ netbox_user }}'
+    password: '{{ netbox_user_password }}'
+    role_attr_flags: SUPERUSER
+  ignore_errors: true
+
+- name: Create DB netbox
+  postgresql_db:
+    login_user: netbox
+    name: netbox
+    encoding: UTF-8
+    template: template0
+    owner: netbox
+    state: present
+
+- name: GRANT CREATE PRIVILEGES ON SCHEMA public TO netbox
+  community.postgresql.postgresql_privs:
+    login_db: netbox
+    privs: CREATE
+    type: schema
+    objs: public
+    role: netbox
+
+- name: Restart postgresql-server on pgdb1
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+
+
+

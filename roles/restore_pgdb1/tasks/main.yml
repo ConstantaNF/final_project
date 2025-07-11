@@ -1,0 +1,277 @@
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+  when: (ansible_hostname == "pgdb1")
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+  when: (ansible_hostname == "pgdb1")
+
+- name: Copy ruleset for remote rsyslog
+  ansible.builtin.template:
+    src: 50-default.conf
+    dest: /etc/rsyslog.d/
+  when: (ansible_hostname == "pgdb1")
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+  when: (ansible_hostname == "pgdb1")
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - traceroute
+      - python3-pexpect
+      - python3-psycopg2
+      - bash-completion
+      - wget
+      - postgresql
+      - barman-cli
+      - postgresql-contrib
+    state: present
+    update_cache: true
+  when: (ansible_hostname == "pgdb1")
+
+- name: Enable and start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+  when: (ansible_hostname == "pgdb1")
+
+- name: Copy postgresql.conf on pgdb1
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: /etc/postgresql/16/main/postgresql.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+  when: (ansible_hostname == "pgdb1")
+
+- name: Copy pg_hba.conf on pgdb1
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+  when: (ansible_hostname == "pgdb1")
+
+- name: Restart postgresql-server on pgdb1
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+  when: (ansible_hostname == "pgdb1")
+
+- name: Stop postgresql-server on pgdb1
+  ansible.builtin.service:
+    name: postgresql
+    state: stopped
+  when: (ansible_hostname == "pgdb1")
+
+- name: Remove files from data catalog on pgdb1
+  ansible.builtin.file:
+    path: /var/lib/postgresql/16/main/
+    state: absent
+  when: (ansible_hostname == "pgdb1")
+
+- name: Copy files from master to slave
+  ansible.builtin.expect:
+    command: su - postgres -c "pg_basebackup -h {{ slave_ip }} -U  {{ replication_user }} -p 5432 -D /var/lib/postgresql/16/main/ -R -P"
+    responses:
+      '.*Password*': "{{ replicator_password }}"
+  when: (ansible_hostname == "pgdb1")
+
+- name: Start postgresql-server on pgdb1
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+  when: (ansible_hostname == "pgdb1")
+
+- name: Select pg_promote()
+  community.postgresql.postgresql_query:
+    login_user: postgres
+    query: SELECT pg_promote(true, 60)
+  when: (ansible_hostname == "pgdb1")
+
+- name: Change psql ip on backend1
+  ansible.builtin.shell: sed -i -E 's/{{ slave_ip }}/{{ master_ip }}/g' /opt/netbox/netbox/netbox/configuration.py
+  ignore_errors: true
+  when: (ansible_hostname == "backend1")
+
+- name: Change psql ip on backend2
+  ansible.builtin.shell: sed -i -E 's/{{ slave_ip }}/{{ master_ip }}/g' /opt/netbox/netbox/netbox/configuration.py
+  ignore_errors: true
+  when: (ansible_hostname == "backend2")
+
+- name: Restart netbox services on backend1
+  ansible.builtin.service:
+    name: netbox
+    state: restarted
+  when: (ansible_hostname == "backend1")
+
+- name: Restart netbox services on backend2
+  ansible.builtin.service:
+    name: netbox
+    state: restarted
+  when: (ansible_hostname == "backend2")
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+  when: (ansible_hostname == "pgdb1")
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+  when: (ansible_hostname == "pgdb1")
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+  when: (ansible_hostname == "pgdb1")
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+  when: (ansible_hostname == "pgdb1")
+
+- name: Remove old ssh-key on barman
+  ansible.builtin.shell: sed -i '/[[:space:]]pgdb1$/d' /var/lib/barman/.ssh/authorized_keys
+  ignore_errors: true
+  when: (ansible_hostname == "barman")
+
+- name: Generate SSH key for pgdb1
+  ansible.builtin.user:
+    name: postgres
+    generate_ssh_key: yes
+    ssh_key_type: rsa
+    ssh_key_bits: 4096
+  when: (ansible_hostname == "pgdb1")
+
+- name: Fetch all public ssh keys pgdb1
+  ansible.builtin.shell: cat /var/lib/postgresql/.ssh/id_rsa.pub
+  register: ssh_keys
+  when: (ansible_hostname == "pgdb1")
+
+- name: Transfer public key to barman
+  delegate_to: barman
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: barman
+  ignore_errors: true
+  when: (ansible_hostname == "pgdb1")
+
+- name: Fetch all public ssh keys barman
+  ansible.builtin.shell: cat /var/lib/barman/.ssh/id_rsa.pub
+  register: ssh_keys
+  ignore_errors: true
+  when: (ansible_hostname == "barman")
+
+- name: Transfer public key to pgdb1
+  delegate_to: pgdb1
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: postgres
+  ignore_errors: true
+  when: (ansible_hostname == "barman")
+
+- name: Restart postgresql-server on pgdb1
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+  when: (ansible_hostname == "pgdb1")
+
+- name: Restart postgresql-server on barman
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+  when: (ansible_hostname == "barman")
+
+- name: Recursively remove /var/lib/barman/pgdb1
+  ansible.builtin.file:
+    path: /var/lib/barman/pgdb1
+    state: absent
+  when: (ansible_hostname == "barman")
+
+- name: Add directory in /var/lib/barman/pgdb1
+  ansible.builtin.file:
+    path: /var/lib/barman/pgdb1/{{ item }}
+    state: directory
+    owner: barman
+    group: barman
+  loop:
+    - base
+    - wal
+    - incoming
+    - errors
+  when: (ansible_hostname == "barman")
+
+- name: barman switch-wal pgdb1
+  ansible.builtin.shell: su - barman -c "barman switch-wal pgdb1"
+  when: (ansible_hostname == "barman")
+
+- name: barman cron
+  ansible.builtin.shell: su - barman -c "barman cron"
+  when: (ansible_hostname == "barman")
+
+- name: Restart postgresql-server on barman
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+  when: (ansible_hostname == "barman")
+
+- name: Stop postgresql-server
+  ansible.builtin.service:
+    name: postgresql
+    state: stopped
+  when: (ansible_hostname == "pgdb2")
+
+- name: Remove files from data catalog on pgdb2
+  ansible.builtin.file:
+    path: /var/lib/postgresql/16/main/
+    state: absent
+  when: (ansible_hostname == "pgdb2")
+
+- name: Copy files from master to slave
+  ansible.builtin.expect:
+    command: su - postgres -c "pg_basebackup -h {{ master_ip }} -U  {{ replication_user }} -p 5432 -D /var/lib/postgresql/16/main/ -R -P"
+    responses:
+      '.*Password*': "{{ replicator_password }}"
+  when: (ansible_hostname == "pgdb2")
+
+- name: Start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+  when: (ansible_hostname == "pgdb2")
+
+- name: Restart failover service
+  ansible.builtin.service:
+    name: pg-failover
+    state: restarted
+  when: (ansible_hostname == "pgdb2")
+
+

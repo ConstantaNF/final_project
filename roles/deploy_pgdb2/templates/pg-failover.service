@@ -1,0 +1,14 @@
+[Unit]
+Description=PostgreSQL Failover Monitor
+After=postgresql@16-main.service
+Requires=postgresql@16-main.service
+
+[Service]
+User=postgres
+Group=postgres
+ExecStart=/usr/local/bin/pg_failover_monitor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

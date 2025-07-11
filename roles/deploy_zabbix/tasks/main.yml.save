@@ -1,0 +1,410 @@
+---
+# tasks file for deploy_nbserver
+#- name: Update and upgrade all packages to the latest version
+#  ansible.builtin.apt:
+#    update_cache: true
+#    upgrade: dist
+#    cache_valid_time: 3600
+
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+  when: (ansible_hostname == "backend1")
+
+#- name: Install traceroute
+#  ansible.builtin.apt:
+#    name: traceroute
+#    state: present
+#    update_cache: true
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 nbagent nbagent.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+  when: (ansible_hostname == "backend1")
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - glusterfs-server
+    - traceroute
+    - git
+    - redis-server
+    - nfs-common
+  when: (ansible_hostname == "backend1")
+
+#- name: Install git
+#  ansible.builtin.apt:
+#    name: git
+#    state: present
+#    update_cache: true
+
+#- name: Install Redis
+#  ansible.builtin.apt:
+#    name: redis-server
+#    state: present
+#    update_cache: true
+
+- name: Install python3 and related packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - python3
+    - python3-pip
+    - python3-venv
+    - python3-dev
+    - build-essential
+    - libxml2-dev
+    - libxslt1-dev
+    - libffi-dev
+    - libpq-dev
+    - libssl-dev
+    - zlib1g-dev
+  when: (ansible_hostname == "backend1")
+
+- name: Create a directory /opt/netbox/
+  ansible.builtin.file:
+    path: /opt/netbox/
+    state: directory
+  when: (ansible_hostname == "backend1")
+
+- name: Clone a repo netbox
+  ansible.builtin.git:
+    repo: https://github.com/netbox-community/netbox.git
+    dest: /opt/netbox
+    separate_git_dir: /root/netbox.git
+  when: (ansible_hostname == "backend1")
+
+- name: Add group netbox
+  ansible.builtin.group:
+    name: netbox
+    state: present
+  when: (ansible_hostname == "backend1")
+
+- name: Add the user 'netbox' on group 'netbox'
+  ansible.builtin.user:
+    name: netbox
+    system: true
+    group: netbox
+  when: (ansible_hostname == "backend1")
+
+- name: Change file ownership and group
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: netbox
+    group: netbox
+    recurse: true
+  loop:
+    - /opt/netbox/
+#    - /opt/netbox/netbox/media/
+#    - /opt/netbox/netbox/reports/
+#    - /opt/netbox/netbox/scripts/
+  when: (ansible_hostname == "backend1")
+
+#- name: Copy Netbox configuration file
+#  ansible.builtin.shell: sudo cp /vagrant/configuration.py /opt/nginx/conf.d/
+
+#- name: Copy Netbox configuration file
+#  ansible.builtin.copy:
+#    src: /vagrant/configuration.py
+#    dest: /opt/netbox/netbox/netbox/
+#    force: true
+
+- name: Copy configuration.py
+  ansible.builtin.template:
+    src: configuration.py.j2
+    dest: /opt/netbox/netbox/netbox/configuration.py
+  when: (ansible_hostname == "backend1")
+
+- name: Schedule the Housekeeping Task
+  ansible.builtin.file:
+    src: /opt/netbox/contrib/netbox-housekeeping.sh
+    dest: /etc/cron.daily/netbox-housekeeping
+    state: link
+  when: (ansible_hostname == "backend1")
+
+#- name: Schedule the Housekeeping Task
+#  ansible.builtin.shell: ln -s /opt/netbox/contrib/netbox-housekeeping.sh /etc/cron.daily/netbox-housekeeping
+
+#- name: Add Zabbix repository
+#  ansible.builtin.apt:
+#    deb: https://repo.zabbix.com/zabbix/6.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_6.0+ubuntu24.04_all.deb
+#    update_cache: yes
+
+#- name: Install zabbix-agent2
+#  ansible.builtin.apt:
+#    name: zabbix-agent2
+#    state: present
+
+#- name: Copy config for zabbix-agent2
+#  ansible.builtin.copy:
+#    src: /vagrant/zabbix_agent2.conf
+#    dest: /etc/zabbix/
+#    force: true
+
+#- name: Enable and start Zabbix-agent2 services
+#  ansible.builtin.systemd:
+#    name: zabbix-agent2
+#    enabled: true
+#    state: started
+
+#- name: Add mappings to /etc/hosts
+#  ansible.builtin.blockinfile:
+#    path: /etc/hosts
+#    block: |
+#      192.168.30.1 webserver webserver.netbox.local
+#      192.168.30.2 backend1 backend1.netbox.local
+#      192.168.30.3 backend2 backend2.netbox.local
+#      192.168.30.4 pgdb1 pgdb1.netbox.local
+#      192.168.30.5 pgdb2 pgdb2.netbox.local
+#      192.168.30.6 barman barman.netbox.local
+#      192.168.30.7 nbagent nbagent.netbox.local
+#      192.168.30.8 gluster gluster.netbox.local
+
+- name: Run the Upgrade Script
+  ansible.builtin.shell: /opt/netbox/upgrade.sh
+  when: (ansible_hostname == "backend1")
+
+- name: Copy gunicorn.py
+  ansible.builtin.template:
+    src: gunicorn.py
+    dest: /opt/netbox/gunicorn.py
+  when: (ansible_hostname == "backend1")
+
+- name: systemd setup (copy service)
+  ansible.builtin.copy:
+    src: /opt/netbox/contrib/{{ item }}
+    dest: /etc/systemd/system/
+    remote_src: yes
+    owner: netbox
+    group: netbox
+  loop:
+    - netbox-housekeeping.service
+    - netbox-rq.service
+    - netbox.service
+  when: (ansible_hostname == "backend1")
+
+- name: Daemon reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: (ansible_hostname == "backend1")
+
+- name: Enable and start netbox service
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - netbox
+    - netbox-rq
+  when: (ansible_hostname == "backend1")
+
+- name: Start gluster server
+  ansible.builtin.service:
+    name: glusterd
+    state: started
+    enabled: true
+  when: (ansible_hostname == "backend1")
+
+- name: Create directory for glusterfs volume
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - /data/gluster/netbox-static
+    - /mnt/netbox-gluster
+  when: (ansible_hostname == "backend1")
+
+#- name: Mount glusterfs volume for static Netbox
+#  ansible.posix.mount:
+#    src: gluster.netbox.local:/netbox-static
+#    path: /mnt/netbox-gluster
+#    opts: rw,sync,hard
+#    state: mounted
+#    fstype: glusterfs
+#  ignore_errors: true
+
+#- name: Install Nginx
+#  ansible.builtin.apt:
+#    name: nginx
+#    state: present
+#    update_cache: true
+
+#- name: Copy nginx.conf
+#  ansible.builtin.template:
+#    src: nginx.conf
+#    dest: /etc/nginx/sites-available/netbox
+
+#- name: Copy SSL certs
+#  ansible.builtin.template:
+#    src: backend1.crt
+#    dest: /etc/ssl/certs/backend1.crt
+
+#- name: Copy SSL private key
+#  ansible.builtin.template:
+#    src: backend1.key
+#    dest: /etc/ssl/private/backend1.key
+
+#- name: Remove nginx default
+#  ansible.builtin.file:
+#    path: /etc/nginx/sites-enabled/default
+#    state: absent
+
+
+- name: Recursively remove /opt/netbox/netbox/static
+  ansible.builtin.file:
+    path: /opt/netbox/netbox/static/
+    state: absent
+  when: (ansible_hostname == "backend1")
+
+- name: Create a symbolic link for /opt/netbox/netbox/static
+  ansible.builtin.file:
+    src: /mnt/netbox-gluster/
+    dest: /opt/netbox/netbox/static
+    state: link
+  when: (ansible_hostname == "backend1")
+
+#- name: Restart nginx service
+#  ansible.builtin.service:
+#    name: nginx
+#    state: restarted
+
+#- name: Reboot server
+#  ansible.builtin.reboot:
+
+- name: Add group postgres
+  ansible.builtin.group:
+    name: postgres
+    state: present
+  when: (ansible_hostname == "backend1")
+
+- name: Ensure postgres user exists
+  ansible.builtin.user:
+    name: postgres
+    system: yes
+    group: postgres
+    shell: /bin/bash
+    home: /home/postgres
+    create_home: yes
+  when: (ansible_hostname == "backend1")
+
+- name: Ensure .ssh directory exists
+  ansible.builtin.file:
+    path: /home/postgres/.ssh
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: 0700
+  when: (ansible_hostname == "backend1")
+
+- name: Add sudo permissions
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/postgres-failover
+    content: "postgres ALL=(ALL) NOPASSWD: /bin/cp, /bin/sed, /bin/chown, /bin/chmod, /usr/bin/stat, /usr/bin/systemctl restart netbox"
+    mode: 0440
+  when: (ansible_hostname == "backend1")
+
+#- name: Generate SSH key for pgdb2
+#  ansible.builtin.user:
+#    name: postgres
+#    generate_ssh_key: yes
+#    ssh_key_type: rsa
+#    ssh_key_bits: 4096
+#    force: yes
+#  when: (ansible_hostname == "pgdb2")
+
+- name: Remove old fingerprint
+  ansible.builtin.shell: sed -i '/[[:space:]]backend1$/d' /var/lib/postgresql/.ssh/authorized_keys
+  when: (ansible_hostname == "pgdb2")
+
+- name: Fetch all public ssh keys pgdb2
+  ansible.builtin.shell: cat /var/lib/postgresql/.ssh/id_rsa.pub
+  register: ssh_keys
+  when: (ansible_hostname == "pgdb2")
+
+- name: Transfer public key to backend1
+  delegate_to: backend1
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: postgres
+  when: (ansible_hostname == "pgdb2")
+
+- name: Generate SSH key for pgdb2
+  ansible.builtin.user:
+    name: postgres
+    shell: /bin/bash
+    generate_ssh_key: yes
+    ssh_key_type: rsa
+    ssh_key_bits: 4096
+    force: yes
+  when: (ansible_hostname == "backend1")
+
+- name: Fetch all public ssh keys backend1
+  ansible.builtin.shell: cat /home/postgres/.ssh/id_rsa.pub
+  register: ssh_keys
+  when: (ansible_hostname == "backend1")
+
+- name: Transfer public key to pgdb2
+  delegate_to: pgdb2
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: postgres
+  when: (ansible_hostname == "backend1")
+
+#- name: Ensure .ssh directory exists
+#  ansible.builtin.file:
+#    path: /home/postgres/.ssh
+#    state: directory
+#  when: (ansible_hostname == "backend1")
+
+#- name: Add backend1 to known_hosts on pgdb2
+#  ansible.builtin.known_hosts:
+#    path: "/tmp/temp_known_hosts"
+#    name: "{{ backend1_hostname }}"
+#    key: "{{ lookup('pipe', 'ssh-keyscan -H ' + backend1_hostname) }}"
+#    state: present
+#  when: (ansible_hostname == "pgdb2")
+
+- name: Add backend1 to known_hosts as postgres user
+  ansible.builtin.shell: |
+    ssh-keyscan -H backend1,192168.30.2 >> /tmp/temp_known_hosts
+  args:
+    executable: /bin/bash
+  when: (ansible_hostname == "pgdb2")
+
+- name: Transfer keys to postgres user
+  ansible.builtin.shell: |
+    cat /tmp/temp_known_hosts >> /var/lib/postgresql/.ssh/known_hosts && \
+    rm -f /tmp/temp_known_hosts
+  args:
+    executable: /bin/bash
+  when: (ansible_hostname == "pgdb2")
+
+- name: Verify SSH connection
+  ansible.builtin.command: >
+    runuser -l postgres -c "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=2 backend1 true"
+  changed_when: false
+  register: ssh_test
+  ignore_errors: yes
+  when: (ansible_hostname == "pgdb2")
+
+- name: Debug if verification failed
+  ansible.builtin.debug:
+    msg: "SSH verification failed. Check connectivity to backend1"
+  when: ssh_test.failed
+  when: (ansible_hostname == "pgdb2")

@@ -1,0 +1,63 @@
+
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+      192.168.30.10 borg borg.netbox.local
+
+- name: Copy rsyslog.conf
+  ansible.builtin.template:
+    src: rsyslog.conf
+    dest: /etc/rsyslog.conf
+
+- name: Copy ruleset for remote log
+  ansible.builtin.template:
+    src: 60-remotelogs.conf
+    dest: /etc/rsyslog.d/
+
+- name: Copy logrotate script
+  ansible.builtin.template:
+    src: remote_log.logrotate
+    dest: /etc/logrotate.d/remote_log
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+

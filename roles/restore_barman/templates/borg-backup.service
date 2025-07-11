@@ -1,0 +1,38 @@
+[Unit]
+Description=Borg Backup for PostgreSQL
+
+[Service]
+Type=oneshot
+User=barman
+Environment="BORG_REPO=ssh://borg@192.168.30.10/var/backup/barman"
+Environment="PATH=/usr/bin:/bin:/usr/local/bin"
+
+# Создание бэкапа
+ExecStart=/bin/bash -c '\
+  export ARCHIVE_NAME="dbbackup-$$(date +%%Y-%%m-%%d_%%H:%%M:%%S)"; \
+  exec /usr/bin/borg create \
+    --stats \
+    --progress \
+    --compression zstd \
+    --exclude-caches \
+    "$${BORG_REPO}::$${ARCHIVE_NAME}" \
+    /var/lib/barman/pgdb1/base/ 2>&1 | logger -t borg-backup'
+
+# Проверка бэкапа
+ExecStartPost=/usr/bin/borg check ${BORG_REPO}
+
+# Очистка старых бэкапов
+ExecStartPost=/usr/bin/borg prune \
+    --keep-daily  90 \
+    --keep-monthly 12 \
+    --keep-yearly  1 \
+    --stats \
+    ${BORG_REPO}
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=borg-backup
+
+[Install]
+WantedBy=multi-user.target

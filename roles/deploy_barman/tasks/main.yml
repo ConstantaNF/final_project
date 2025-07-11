@@ -1,0 +1,213 @@
+
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+  when: (ansible_hostname == "barman")
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+      192.168.30.10 borg borg.netbox.local
+  when: (ansible_hostname == "barman")
+
+- name: Copy ruleset for remote rsyslog
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: /etc/rsyslog.d/
+  loop:
+    - 50-default.conf
+    - 60-barman.conf
+  when: (ansible_hostname == "barman")
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+  when: (ansible_hostname == "barman")
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - traceroute
+      - borgbackup
+      - python3-pexpect
+      - python3-psycopg2
+      - bash-completion
+      - wget
+      - postgresql
+      - barman-cli
+      - barman
+    state: present
+    update_cache: true
+  when: (ansible_hostname == "barman")
+
+- name: Enable and start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+  when: (ansible_hostname == "barman")
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+  when: (ansible_hostname == "barman")
+
+- name: Generate SSH key for pgdb1
+  ansible.builtin.user:
+    name: postgres
+    generate_ssh_key: yes
+    ssh_key_type: rsa
+    ssh_key_bits: 4096
+    force: yes
+  when: (ansible_hostname == "pgdb1")
+
+- name: Fetch all public ssh keys pgdb1
+  ansible.builtin.shell: cat /var/lib/postgresql/.ssh/id_rsa.pub
+  register: ssh_keys
+  when: (ansible_hostname == "pgdb1")
+
+- name: Transfer public key to barman
+  delegate_to: barman
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: barman
+  when: (ansible_hostname == "pgdb1")
+
+- name: Generate SSH key for barman
+  ansible.builtin.user:
+    name: barman
+    shell: /bin/bash
+    generate_ssh_key: yes
+    ssh_key_type: rsa
+    ssh_key_bits: 4096
+    force: yes
+  when: (ansible_hostname == "barman")
+
+- name: Fetch all public ssh keys barman
+  ansible.builtin.shell: cat /var/lib/barman/.ssh/id_rsa.pub
+  register: ssh_keys
+  when: (ansible_hostname == "barman")
+
+- name: Transfer public key to pgdb1
+  delegate_to: pgdb1
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: postgres
+  when: (ansible_hostname == "barman")
+
+- name: Copy .pgpass
+  ansible.builtin.template:
+    src: .pgpass.j2
+    dest: /var/lib/barman/.pgpass
+    owner: barman
+    group: barman
+    mode: '0600'
+  when: (ansible_hostname == "barman")
+
+- name: Copy barman.conf
+  ansible.builtin.template:
+    src: barman.conf.j2
+    dest: /etc/barman.conf
+    owner: barman
+    group: barman
+    mode: '0755'
+  when: (ansible_hostname == "barman")
+
+- name: Copy pgdb1.conf
+  ansible.builtin.template:
+    src: pgdb1.conf.j2
+    dest: /etc/barman.d/pgdb1.conf
+    owner: barman
+    group: barman
+    mode: '0755'
+  when: (ansible_hostname == "barman")
+
+- name: Restart postgresql-server on barman
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+  when: (ansible_hostname == "barman")
+
+- name: barman switch-wal pgdb1
+  ansible.builtin.shell: su - barman -c "barman switch-wal pgdb1"
+  when: (ansible_hostname == "barman")
+
+#- name: barman cron
+#  ansible.builtin.shell: su - barman -c "barman cron"
+#  when: (ansible_hostname == "barman")
+
+#- name: Restart postgresql-server on pgdb1
+#  ansible.builtin.service:
+#    name: postgresql
+#    state: restarted
+#  when: (ansible_hostname == "pgdb1")
+
+#- name: Restart postgresql-server on barman
+#  ansible.builtin.service:
+#    name: postgresql
+#    state: restarted
+#  when: (ansible_hostname == "barman")
+
+- name: Add backup pgdb1 to crontab
+  ansible.builtin.cron:
+    name: "Backup pgdb1"
+    job: "barman backup pgdb1 && barman list-backup pgdb1 > list_backup.txt"
+    minute: "*/5"
+    hour: "*"
+    month: "*"
+    weekday: "*"
+    user: barman
+  when: (ansible_hostname == "barman")
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+  when: (ansible_hostname == "barman")
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+  when: (ansible_hostname == "barman")
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+  when: (ansible_hostname == "barman")
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+  when: (ansible_hostname == "barman")
+
+- name: Chmod /var/log/barman
+  ansible.builtin.file:
+    path: /var/log/barman
+    mode: '0755'
+  when: (ansible_hostname == "barman")
+
+- name: Chmod /var/log/barman/barman.log
+  ansible.builtin.file:
+    path: /var/log/barman/barman.log
+    mode: '0644'
+  when: (ansible_hostname == "barman")

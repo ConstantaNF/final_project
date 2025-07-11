@@ -1,0 +1,22 @@
+---
+- name: Copy pryvate_key on borg directory
+  ansible.builtin.copy:
+    src: ~/final_project/barman/.vagrant/machines/barman/virtualbox/private_key
+    dest: ~/final_project/borg/barman/.vagrant/machines/barman/virtualbox/
+    mode: '0600'
+    force: true
+
+#- name: Copy pryvate_key  on borg directory
+#  ansible.builtin.copy:
+#    src: ~/final_project/barman/restore/.vagrant/machines/barman/virtualbox/private_key
+#    dest: ~/final_project/borg/barman/.vagrant/machines/barman/virtualbox/
+#    mode: '0600'
+#    force: true
+
+- name: Copy pryvate_key on barman restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/borg/.vagrant/machines/borg/virtualbox/private_key
+    dest: ~/final_project/barman/restore/borg/.vagrant/machines/borg/virtualbox/
+    mode: '0600'
+    force: true
+

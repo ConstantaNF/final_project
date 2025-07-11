@@ -1,0 +1,24 @@
+Vagrant.configure("2") do |config|
+  # Base VM OS configuration
+  config.vm.box = "bento/ubuntu-24.04"
+  config.vm.define "backend2"
+  config.vm.provider :virtualbox do |v|
+    v.memory = 2024
+    v.cpus = 2
+  end
+
+  # Network settings static private IP addresses
+  config.vm.hostname = "backend2"
+  config.vm.network :forwarded_port, guest: 22, host: 22023
+  config.vm.network "private_network", ip: "192.168.30.3", virtualbox__intnet: "default_nbnetwork"
+
+  # Provision ansible
+  config.vm.provision "ansible" do |ansible|
+    ansible.playbook = "../../site.yml"
+    ansible.inventory_path = "../../hosts.ini"
+    ansible.tags = "copy_pryv_key_restore_backend2, restore_backend2"
+    ansible.host_key_checking = "false"
+    ansible.limit = "all"
+  end
+end
+

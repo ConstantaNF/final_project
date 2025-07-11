@@ -1,0 +1,15 @@
+---
+# defaults file for postgres_replications
+replication_user: 'replication'
+replicator_password: 'Otus2025!'
+master_ip: '192.168.30.4'
+slave_ip: '192.168.30.5'
+# defaults file for install_barman
+master_user: 'postgres'
+barman_ip: '192.168.30.6'
+barman_user: 'barman'
+barman_user_password: 'Otus2025!'
+# defaults file for netbox
+netbox_user: 'netbox'
+netbox_user_password: 'netbox'
+backend1_hostname: 'backend1'

@@ -1,0 +1,132 @@
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+  when: (ansible_hostname == "gluster")
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+      192.168.30.10 borg borg.netbox.local
+  when: (ansible_hostname == "gluster")
+
+- name: Copy ruleset for remote rsyslog
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: /etc/rsyslog.d/
+  loop:
+    - 50-default.conf
+    - 60-gluster.conf
+  when: (ansible_hostname == "gluster")
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+  when: (ansible_hostname == "gluster")
+
+- name: Install need packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - glusterfs-server
+    - traceroute
+  when: (ansible_hostname == "gluster")
+
+- name: Create directory for glusterfs volume
+  ansible.builtin.file:
+    path: /data/gluster/netbox-static
+    state: directory
+  when: (ansible_hostname == "gluster")
+
+- name: Start gluster server
+  ansible.builtin.service:
+    name: glusterd
+    state: started
+    enabled: true
+  when: (ansible_hostname == "gluster")
+
+- name: Remove brick gluster.netbox.local
+  ansible.builtin.shell: echo "y" | gluster volume remove-brick netbox-static replica 2 gluster.netbox.local:/data/gluster/netbox-static force
+  ignore_errors: true
+  when: (ansible_hostname == "backend1")
+
+- name: Remove peer gluster.netbox.local
+  ansible.builtin.shell: |
+    echo "y" | gluster peer detach gluster.netbox.local
+  when: (ansible_hostname == "backend1")
+
+- name: Add peer gluster.netbox.local
+  ansible.builtin.shell: gluster peer probe gluster.netbox.local
+  when: (ansible_hostname == "backend1")
+
+- name: Add brick gluster.netbox.local
+  ansible.builtin.shell: gluster volume add-brick netbox-static replica 3 gluster.netbox.local:/data/gluster/netbox-static force
+  when: (ansible_hostname == "gluster")
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+  when: (ansible_hostname == "gluster")
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+  when: (ansible_hostname == "gluster")
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+    force: true
+  when: (ansible_hostname == "gluster")
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+  when: (ansible_hostname == "gluster")
+
+- name: Chmod /var/log/glusterfs/
+  ansible.builtin.file:
+    path: /var/log/glusterfs/
+    mode: '0755'
+  when: (ansible_hostname == "gluster")
+
+- name: Find all GlusterFS log files
+  ansible.builtin.find:
+    paths: /var/log/glusterfs/
+    patterns: "*.log"
+  register: gluster_logs
+  when: (ansible_hostname == "gluster")
+
+- name: Change permissions for found logs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: '0644'
+  loop: "{{ gluster_logs.files }}"
+  when:
+    - (ansible_hostname == "gluster")
+    - (gluster_logs.matched > 0)
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+  when: (ansible_hostname == "gluster")

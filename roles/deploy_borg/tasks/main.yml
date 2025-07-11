@@ -1,0 +1,150 @@
+
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+  when: (ansible_hostname == "borg")
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+      192.168.30.10 borg borg.netbox.local
+  when: (ansible_hostname == "borg")
+
+- name: Copy ruleset for remote log
+  ansible.builtin.template:
+    src: 50-default.conf
+    dest: /etc/rsyslog.d/
+  when: (ansible_hostname == "borg")
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
+  when: (ansible_hostname == "borg")
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name: borgbackup
+    state: present
+    update_cache: true
+  when: (ansible_hostname == "borg")
+
+- name: Add group borg
+  ansible.builtin.group:
+    name: borg
+    state: present
+  when: (ansible_hostname == "borg")
+
+- name: Add user borg
+  ansible.builtin.user:
+    name: borg
+    system: true
+    group: borg
+    shell: /bin/bash
+    home: /home/borg
+    create_home: yes
+  when: (ansible_hostname == "borg")
+
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: /var/backup/barman
+    state: directory
+    owner: borg
+    group: borg
+    mode: 0755
+  when: (ansible_hostname == "borg")
+
+- name: Ensure .ssh directory exists
+  ansible.builtin.file:
+    path: /home/borg/.ssh
+    state: directory
+    owner: borg
+    group: borg
+    mode: 0700
+  when: (ansible_hostname == "borg")
+
+- name: Fetch all public ssh keys barman
+  ansible.builtin.shell: cat /var/lib/barman/.ssh/id_rsa.pub
+  register: ssh_keys
+  when: (ansible_hostname == "barman")
+
+- name: Transfer public key to borg
+  delegate_to: borg
+  authorized_key:
+    key: "{{ ssh_keys.stdout }}"
+    comment: "{{ansible_hostname}}"
+    user: borg
+  when: (ansible_hostname == "barman")
+
+- name: Add borg to known_hosts as barman user
+  ansible.builtin.shell: |
+    ssh-keyscan -H borg,192.168.30.10 >> /tmp/temp_known_hosts
+  args:
+    executable: /bin/bash
+  when: (ansible_hostname == "barman")
+
+- name: Transfer keys to barman user
+  ansible.builtin.shell: |
+    cat /tmp/temp_known_hosts >> /var/lib/barman/.ssh/known_hosts && \
+    rm -f /tmp/temp_known_hosts
+  args:
+    executable: /bin/bash
+  when: (ansible_hostname == "barman")
+
+- name: Init repository borg
+  ansible.builtin.shell: su barman -c "borg init --encryption=none borg@192.168.30.10:/var/backup/barman/"
+  when: (ansible_hostname == "barman")
+
+- name: Copy borg-backup.service and borg-backup.timer
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: /etc/systemd/system
+  loop:
+    - borg-backup.service
+    - borg-backup.timer
+  when: (ansible_hostname == "barman")
+
+- name: Enable and start borg-backup.timer
+  ansible.builtin.systemd:
+    name: borg-backup.timer
+    enabled: true
+    state: started
+  when: (ansible_hostname == "barman")
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+  when: (ansible_hostname == "borg")
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+  when: (ansible_hostname == "borg")
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+  when: (ansible_hostname == "borg")
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+  when: (ansible_hostname == "borg")
+

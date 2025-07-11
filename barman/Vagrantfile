@@ -1,0 +1,24 @@
+Vagrant.configure("2") do |config|
+  # Base VM OS configuration
+  config.vm.box = "bento/ubuntu-24.04"
+  config.vm.define "barman"
+  config.vm.provider :virtualbox do |v|
+    v.memory = 1024
+    v.cpus = 1
+  end
+
+  # Network settings static private IP addresses
+  config.vm.hostname = "barman"
+  config.vm.network :forwarded_port, guest: 22, host: 22026
+  config.vm.network "private_network", ip: "192.168.30.6", virtualbox__intnet: "default_nbnetwork"
+
+  # Provision ansible
+  config.vm.provision "ansible" do |ansible|
+    ansible.playbook = "../site.yml"
+    ansible.inventory_path = "../hosts.ini"
+    ansible.tags = "copy_pryv_key_barman, barman"
+    ansible.host_key_checking = "false"
+    ansible.limit = "all"
+  end
+end
+

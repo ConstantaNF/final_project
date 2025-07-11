@@ -1,0 +1,239 @@
+---
+# Блок управления локальными настройками для ansible
+####################################################
+- name: Copy vagrant privat_key backend1
+  hosts: localhost
+  roles:
+    - role: localhost_backend1
+  tags:
+    - copy_pryv_key_backend1
+
+- name: Copy vagrant privat_key restore_backend1
+  hosts: localhost
+  roles:
+    - role: localhost_restore_backend1
+  tags:
+    - copy_pryv_key_restore_backend1
+
+- name: Copy vagrant privat_key backend2
+  hosts: localhost
+  roles:
+    - role: localhost_backend2
+  tags:
+    - copy_pryv_key_backend2
+
+- name: Copy vagrant privat_key restore_backend2
+  hosts: localhost
+  roles:
+    - role: localhost_restore_backend2
+  tags:
+    - copy_pryv_key_restore_backend2
+
+- name: Copy vagrant privat_key gluster
+  hosts: localhost
+  roles:
+    - role: localhost_gluster
+  tags:
+    - copy_pryv_key_gluster
+
+- name: Copy vagrant privat_key restore_gluster
+  hosts: localhost
+  roles:
+    - role: localhost_restore_gluster
+  tags:
+    - copy_pryv_key_restore_gluster
+
+- name: Copy vagrant privat_key barman
+  hosts: localhost
+  roles:
+    - role: localhost_barman
+  tags:
+    - copy_pryv_key_barman
+
+- name: Copy vagrant privat_key restore_barman
+  hosts: localhost
+  roles:
+    - role: localhost_restore_barman
+  tags:
+    - copy_pryv_key_barman_restore
+
+- name: Copy vagrant privat_key pgdb1
+  hosts: localhost
+  roles:
+    - role: localhost_pgdb1
+  tags:
+    - copy_pryv_key_pgdb1
+
+- name: Copy vagrant privat_key pgdb1 restore
+  hosts: localhost
+  roles:
+    - role: localhost_restore_pgdb1
+  tags:
+    - copy_pryv_key_pgdb1_restore
+
+- name: Copy vagrant privat_key pgdb2
+  hosts: localhost
+  roles:
+    - role: localhost_pgdb2
+  tags:
+    - copy_pryv_key_pgdb2
+
+- name: Copy vagrant privat_key pgdb2 restore
+  hosts: localhost
+  roles:
+    - role: localhost_restore_pgdb2
+  tags:
+    - copy_pryv_key_pgdb2_restore
+
+- name: Copy vagrant privat_key barman on borg directory
+  hosts: localhost
+  roles:
+    - role: localhost_borg
+  tags:
+    - copy_pryv_key_borg
+
+# Блок управления настройкой и восстановлением IaC-инфраструктуры веб-сервиса 
+#############################################################################
+- name: Deploy webserver
+  hosts: webserver
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_webserver
+  tags:
+    - webserver
+
+- name: Deploy zabbix
+  hosts: zabbix
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_zabbix
+  tags:
+    - zabbix
+
+- name: Deploy backend1
+  hosts: backend1, pgdb2
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_backend1
+  tags:
+    - backend1
+
+- name: Restore backend1
+  hosts: backend1, gluster, pgdb2
+  become: true
+  gather_facts: true
+  roles:
+    - role: restore_backend1
+  tags:
+    - restore_backend1
+
+- name: Deploy backend2
+  hosts: backend2, pgdb2
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_backend2
+  tags:
+    - backend2
+
+- name: Restore backend2
+  hosts: backend2, gluster, pgdb2
+  become: true
+  gather_facts: true
+  roles:
+    - role: restore_backend2
+  tags:
+    - restore_backend2
+
+- name: Deploy GlusterFS server
+  hosts: backends
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_gluster
+  tags:
+    - gluster
+
+- name: Restore GlusterFS server
+  hosts: backends
+  become: true
+  gather_facts: true
+  roles:
+    - role: restore_gluster
+  tags:
+    - restore_gluster
+
+- name: Deploy pgdb1
+  hosts: pgdb1
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_pgdb1
+  tags:
+    - pgdb1
+
+- name: Restore pgdb1
+  hosts: pgdb, backend1, backend2
+  become: true
+  gather_facts: true
+  roles:
+    - role: restore_pgdb1
+  tags:
+    - restore_pgdb1
+
+- name: Deploy pgdb2
+  hosts: pgdb2
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_pgdb2
+  tags:
+    - pgdb2
+
+- name: Restore pgdb2
+  hosts: pgdb2, backend1, backend2
+  become: true
+  gather_facts: true
+  roles:
+    - role: restore_pgdb2
+  tags:
+    - restore_pgdb2
+
+- name: Deploy barman
+  hosts: barman, pgdb1
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_barman
+  tags:
+    - barman
+
+- name: Restore barman
+  hosts: pgdb1, borg, barman
+  become: true
+  gather_facts: true
+  roles:
+    - role: restore_barman
+  tags:
+    - restore_barman
+
+- name: Deploy rsyslog
+  hosts: rsyslog
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_rsyslog
+  tags:
+    - rsyslog
+
+- name: Deploy borg
+  hosts: borg, barman
+  become: true
+  gather_facts: true
+  roles:
+    - role: deploy_borg
+  tags:
+    - borg

@@ -1,0 +1,4 @@
+---
+# handlers file for preparing_server
+- name: Reboot webserver
+  ansible.builtin.reboot:

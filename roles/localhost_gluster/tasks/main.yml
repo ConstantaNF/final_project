@@ -1,0 +1,15 @@
+---
+- name: Copy pryvate_key  on backend1 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/gluster/.vagrant/machines/gluster/virtualbox/private_key
+    dest: ~/final_project/backend1/restore/gluster/.vagrant/machines/gluster/virtualbox/
+    mode: '0600'
+    force: true
+
+- name: Copy pryvate_key  on backend2 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/gluster/.vagrant/machines/gluster/virtualbox/private_key
+    dest: ~/final_project/backend2/restore/gluster/.vagrant/machines/gluster/virtualbox/
+    mode: '0600'
+    force: true
+

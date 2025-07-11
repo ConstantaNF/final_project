@@ -1,0 +1,19 @@
+[Unit]
+Description=Run Borg backup every 5 min
+
+[Timer]
+# Основной триггер
+OnCalendar=*-*-* *:0/5:00
+
+# Защитные механизмы
+RandomizedDelaySec=30s
+AccuracySec=1m
+
+# Поведение при пропуске
+Persistent=true
+
+# Контроль времени выполнения
+WakeSystem=false
+
+[Install]
+WantedBy=timers.target

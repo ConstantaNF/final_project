@@ -1,0 +1,40 @@
+---
+- name: Copy pryvate_key pgdb2 on backend1 directory
+  ansible.builtin.copy:
+    src: ~/final_project/pgdb2/restore/.vagrant/machines/pgdb2/virtualbox/private_key
+    dest: ~/final_project/backend1/pgdb2/.vagrant/machines/pgdb2/virtualbox/
+    mode: '0600'
+    force: true
+  ignore_errors: true
+
+- name: Copy pryvate_key pgdb2 on backend1 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/pgdb2/restore/.vagrant/machines/pgdb2/virtualbox/private_key
+    dest: ~/final_project/backend1/restore/pgdb2/.vagrant/machines/pgdb2/virtualbox/
+    mode: '0600'
+    force: true
+  ignore_errors: true
+
+- name: Copy pryvate_key pgdb2 on backend2 directory
+  ansible.builtin.copy:
+    src: ~/final_project/pgdb2/restore/.vagrant/machines/pgdb2/virtualbox/private_key
+    dest: ~/final_project/backend2/pgdb2/.vagrant/machines/pgdb2/virtualbox/
+    mode: '0600'
+    force: true
+  ignore_errors: true
+
+- name: Copy pryvate_key pgdb2 on backend2 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/pgdb2/restore/.vagrant/machines/pgdb2/virtualbox/private_key
+    dest: ~/final_project/backend2/restore/pgdb2/.vagrant/machines/pgdb2/virtualbox/
+    mode: '0600'
+    force: true
+  ignore_errors: true
+
+- name: Copy pryvate_key pgdb2 on pgdb1 restore directory
+  ansible.builtin.copy:
+    src: ~/final_project/pgdb2/restore/.vagrant/machines/pgdb2/virtualbox/private_key
+    dest: ~/final_project/pgdb1/restore/pgdb2/.vagrant/machines/pgdb2/virtualbox/
+    mode: '0600'
+    force: true
+  ignore_errors: true

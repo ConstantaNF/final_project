@@ -1,0 +1,161 @@
+---
+- name: Set timezone to Europe/Moscow
+  ansible.builtin.timezone:
+    name: Europe/Moscow
+
+- name: Add mappings to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      192.168.30.1 webserver webserver.netbox.local
+      192.168.30.2 backend1 backend1.netbox.local
+      192.168.30.3 backend2 backend2.netbox.local
+      192.168.30.4 pgdb1 pgdb1.netbox.local
+      192.168.30.5 pgdb2 pgdb2.netbox.local
+      192.168.30.6 barman barman.netbox.local
+      192.168.30.7 rsyslog rsyslog.netbox.local
+      192.168.30.8 gluster gluster.netbox.local
+      192.168.30.9 zabbix zabbix.netbox.local
+      192.168.30.10 borg borg.netbox.local
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - traceroute
+      - python3-pexpect
+      - python3-psycopg2
+      - bash-completion
+      - wget
+      - postgresql
+      - barman-cli
+      - postgresql-contrib
+    state: present
+    update_cache: true
+
+- name: Enable and start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Copy postgresql.conf on pgdb2
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest:  /etc/postgresql/16/main/postgresql.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Copy pg_hba.conf on pgdb2
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest:  /etc/postgresql/16/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Restart postgresql-server on pgdb2
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+
+- name: Stop postgresql-server
+  ansible.builtin.service:
+    name: postgresql
+    state: stopped
+
+- name: Remove files from data catalog on pgdb2
+  ansible.builtin.file:
+    path: /var/lib/postgresql/16/main/
+    state: absent
+
+- name: Copy files from master to slave
+  ansible.builtin.expect:
+    command: su - postgres -c "pg_basebackup -h {{ master_ip }} -U  {{ replication_user }} -p 5432 -D /var/lib/postgresql/16/main/ -R -P"
+    responses:
+      '.*Password*': "{{ replicator_password }}"
+
+- name: Start service postgresql
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+
+- name: Add Zabbix repository
+  ansible.builtin.apt:
+    deb: https://repo.zabbix.com/zabbix/7.2/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.2+ubuntu24.04_all.deb
+    update_cache: yes
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: yes
+
+- name: Copy config for zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf
+    dest: /etc/zabbix/
+
+- name: Enable and start Zabbix-agent2 services
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+
+- name: Generate SSH key
+  ansible.builtin.user:
+    name: "{{ master_user }}"
+    generate_ssh_key: yes
+    ssh_key_type: rsa
+    ssh_key_bits: 4096
+    force: yes
+
+- name: Deploy failover script
+  ansible.builtin.template:
+    src: pg_failover_monitor.sh
+    dest: /usr/local/bin/pg_failover_monitor.sh
+    mode: 0755
+    owner: postgres
+    group: postgres
+
+- name: Deploy systemd service
+  ansible.builtin.template:
+    src: pg-failover.service
+    dest: /etc/systemd/system/pg-failover.service
+    mode: 0644
+
+- name: Deploy logrotate config
+  ansible.builtin.template:
+    src: pg-failover.logrotate
+    dest: /etc/logrotate.d/pg-failover
+    mode: 0644
+
+- name: Enable and start failover service
+  ansible.builtin.systemd:
+    name: pg-failover
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Copy ruleset for remote rsyslog
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: /etc/rsyslog.d/
+  loop:
+    - 50-default.conf
+    - 60-failover.conf
+
+- name: Chmod /var/log/postgresql/
+  ansible.builtin.file:
+    path: /var/log/postgresql/
+    mode: '0755'
+
+- name: Chmod /var/log/postgresql/failover.log
+  ansible.builtin.file:
+    path: /var/log/postgresql/failover.log
+    mode: '0644'
+
+- name: Restart rsyslog service
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted
