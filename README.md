@@ -93,6 +93,6 @@
 Чтобы наглядно представить структуру взаимодействия компонентов, разработана следующая блок-схема инфраструктуры проекта:
 
  
-https://drive.google.com/file/d/1O45iH-YDmZm0jTa8A_xoXWRjSmxGC_zc/view?usp=sharing
-![]()
+<img width="671" height="545" alt="Netbox cluster" src="https://github.com/user-attachments/assets/f7126239-f294-4d09-9ffa-3f903475114d" />
+
 
